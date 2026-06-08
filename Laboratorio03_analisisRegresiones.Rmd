@@ -1,0 +1,199 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+### Carga de librerias
+```{r}
+#  Librerías estadísticas pesadas o antiguas primero
+library(MASS)
+
+# Librerías de manipulación y gráficos al final para que tengan prioridad
+library(dplyr)
+library(ggplot2)
+library(PerformanceAnalytics)
+library(caret)
+```
+
+
+### Carga dataset
+```{r}
+housing_data <-read.csv("housing.csv") 
+
+
+# Estructura inicial de los datos
+str(housing_data)
+head(housing_data)
+```
+### Eliminar nulos
+```{r}
+housing_data <- na.omit(housing_data)
+cat("Registros totales después de limpiar nulos:", nrow(housing_data), "\n")
+```
+
+### Matriz de correlación
+```{r}
+
+
+# Nota: Seleccionamos solo las variables numéricas para evitar errores en la gráfica
+variables_numericas <- housing_data %>% dplyr::select(where(is.numeric))
+
+
+chart.Correlation(variables_numericas, histogram=TRUE, pch=19)
+```
+### Partición del dataset
+```{r}
+
+# Fijar la semilla para reproducibilidad
+set.seed(42)
+
+# Crear índice de partición asignado a la variable objetivo
+train_index <- createDataPartition(y = housing_data$median_house_value, p = 0.80, list = FALSE)
+
+# Crear de subconjuntos
+data_train <- housing_data[train_index, ]
+data_test  <- housing_data[-train_index, ]
+
+cat("Registros de Entrenamiento:", nrow(data_train), "\n")
+cat("Registros de Testing:", nrow(data_test), "\n")
+```
+### Preparar la validación cruzada 
+
+```{r}
+
+# 1. Configuración de la Validación Cruzada de 10 pliegues (10-fold CV)
+# Nota: Usamos el método estándar "cv" para evaluar de forma robusta
+cv_driver <- trainControl(method = "cv", number = 10, verboseIter = FALSE)
+```
+
+### Entrenamiento de las tres regresiones lineales (simple, múltiple y)
+```{r}
+# =========================================================================
+# ENFOQUE A: Regresión Lineal Simple 
+# Usamos 'median_income' porque justificamos que tiene la mayor correlación (0.69)
+# =========================================================================
+modelo_simple <- train(
+  median_house_value ~ median_income, 
+  data = data_train,
+  method = "lm",
+  metric = "RMSE",
+  trControl = cv_driver
+)
+
+# =========================================================================
+# ENFOQUE B: Regresión Lineal Múltiple
+# Usamos el punto (.) para indicarle a R que incluya TODOS los predictores
+# =========================================================================
+modelo_multiple <- train(
+  median_house_value ~ ., 
+  data = data_train,
+  method = "lm",
+  metric = "RMSE",
+  trControl = cv_driver
+)
+
+# =========================================================================
+# ENFOQUE C: Stepwise Regression (Selección secuencial óptima por AIC)
+# =========================================================================
+# Definimos los modelos límites para el algoritmo stepwise
+modelo_minimo <- lm(median_house_value ~ 1, data = data_train)
+modelo_maximo <- lm(median_house_value ~ ., data = data_train)
+
+# El algoritmo evalúa qué variables quitar o poner de forma automática
+step_formula <- step(
+  modelo_minimo, 
+  scope = list(lower = modelo_minimo, upper = modelo_maximo), 
+  direction = "both", 
+  trace = FALSE
+)
+
+# Guardamos el resultado del Stepwise dentro de caret para calcular su CV
+modelo_stepwise <- train(
+  step_formula$call$formula,
+  data = data_train,
+  method = "lm",
+  metric = "RMSE",
+  trControl = cv_driver
+)
+
+cat("¡Modelos entrenados con éxito!\n")
+```
+### Tabla comparativa 
+
+```{r}
+
+# Métricas obtenidas en la Validación Cruzada (CV)
+resumen_modelos <- data.frame(
+  Modelo = c("Regresión Lineal Simple", "Regresión Lineal Múltiple", "Stepwise Regression"),
+  Estructura_Variables = c("1 Variable (median_income)", "Todas las Variables del Dataset", "Variables Óptimas Seleccionadas por AIC"),
+  RMSE_CV = c(modelo_simple$results$RMSE, modelo_multiple$results$RMSE, modelo_stepwise$results$RMSE),
+  R_Cuadrado_CV = c(modelo_simple$results$Rsquared, modelo_multiple$results$Rsquared, modelo_stepwise$results$Rsquared)
+)
+
+# Ordenar  los modelos de menor a mayor error 
+top_3_tabla <- resumen_modelos %>% arrange(RMSE_CV)
+
+# Tabla
+# Todas las columnas a la izquierda
+knitr::kable(top_3_tabla, align = "llll", caption = "Top 3 de Modelos Evaluados en Validación Cruzada")
+```
+#### Asignación de modelo champion
+
+```{r}
+# Modelo ganador basado en la tabla de resultados
+champion_model <- modelo_multiple
+
+#  Generar predicciones sobre el set de prueba y calcular el RMSE final
+preds_champion <- predict(champion_model, newdata = data_test)
+rmse_test <- sqrt(mean((preds_champion - data_test$median_house_value)^2))
+
+# Calcular el porcentaje de error respecto al rango de entrenamiento
+rango_train <- max(data_train$median_house_value) - min(data_train$median_house_value)
+porcentaje_error <- (rmse_test / rango_train) * 100
+
+# Resultados oficiales
+cat("============================================================\n")
+cat("MÉTRICAS DE REGISTRO DEL MODELO CHAMPION (SET DE PRUEBA)\n")
+cat("============================================================\n")
+cat("1. RMSE final en el set de testing: $", round(rmse_test, 2), "\n")
+cat("2. Porcentaje de error relativo al rango:", round(porcentaje_error, 2), "%\n")
+```
+### Gráficas
+
+```{r}
+
+# Tabla temporal con los valores reales del test y las predicciones
+df_resultados_test <- data.frame(
+  Real = data_test$median_house_value,
+  Predicho = preds_champion
+)
+
+#  Gráfica de densidad comparativa (Reales vs Predicciones)
+grafica_densidad <- ggplot(df_resultados_test) +
+  geom_density(aes(x = Real, fill = "Valores Reales (Test)"), alpha = 0.4) +
+  geom_density(aes(x = Predicho, fill = "Predicciones Champion"), alpha = 0.4) +
+  scale_fill_manual(values = c("Valores Reales (Test)" = "blue", "Predicciones Champion" = "orange")) +
+  labs(
+    title = "3. Gráfica de Densidad: Valores Reales vs. Predicciones",
+    x = "Valor de la Vivienda (median_house_value)",
+    y = "Densidad",
+    fill = "Distribución"
+  ) +
+  theme_minimal()
+
+print(grafica_densidad)
+
+#  Scatter Plot (Valores Reales vs Predicciones)
+grafica_scatter <- ggplot(df_resultados_test, aes(x = Real, y = Predicho)) +
+  geom_point(color = "darkblue", alpha = 0.4, size = 1.5) +
+  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed", size = 1) +
+  labs(
+    title = "4. Scatter Plot: Valores Reales vs. Predicciones sobre el Test",
+    x = "Valores Reales (Test)",
+    y = "Predicciones del Modelo"
+  ) +
+  theme_minimal()
+
+print(grafica_scatter)
+```
+
