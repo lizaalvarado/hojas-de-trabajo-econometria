@@ -1,0 +1,696 @@
+---
+title: "R Notebook"
+output:
+  html_document:
+    df_print: paged
+---
+# Ejercicio 1 
+
+## Configuración
+```{r}
+#  Carga de librerías necesarias
+library(tidyverse)
+```
+
+```{r}
+#  Carga de dataset 
+df <- read.csv("walmart.csv")
+
+```
+
+```{r}
+# Ver estructura inicial
+str(df)
+```
+
+## EDA – Exploratory Data Analysis
+
+## Gráficas de densidad
+```{r}
+# EDA 1.a: Gráficas de densidad para variables continuas
+# Seleccionamos las columnas solicitadas y las pasamos a formato "largo" para graficar juntas
+df_cont <- df %>% 
+  select(Weekly_Sales, Temperature, Fuel_Price, CPI, Unemployment) %>%
+  pivot_longer(everything(), names_to = "variable", values_to = "valor")
+
+# Crear el gráfico de densidad
+ggplot(df_cont, aes(x = valor, fill = variable)) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(~variable, scales = "free") +
+  theme_minimal() +
+  labs(title = "Gráficas de Densidad de Variables Continuas",
+       x = "Valor",
+       y = "Densidad") +
+  theme(legend.position = "none")
+```
+#### Comentario:
+- **CPI y Fuel_Price**: Muestran un comportamiento claramente bimodal (dos picos pronunciados).
+- **Temperature y Unemployment**: Son las variables que más se aproximan a una forma normal, aunque Temperature muestra un ligero sesgo hacia la izquierda y Unemployment presenta cola menores en sus extremos.
+- **Weekly_Sales**: Tiene un fuerte sesgo a la derecha.
+
+## Gráfica de barras para variables categoricas (Holiday_Flag y Store)
+```{r}
+# 1. Asegurarnos de que R interprete estas columnas como categóricas (Factores)
+df_cat <- df %>%
+  mutate(
+    Holiday_Flag = factor(Holiday_Flag, labels = c("No Feriado", "Feriado")),
+    Store = factor(Store)
+  )
+
+# Gráfica de barras para Holiday_Flag
+p_bar_holiday <- ggplot(df_cat, aes(x = Holiday_Flag, fill = Holiday_Flag)) +
+  geom_bar(color = "black", alpha = 0.7) +
+  theme_minimal() +
+  labs(title = "Ocurrencias por Tipo de Semana", x = "", y = "Cantidad de Registros") +
+  theme(legend.position = "none")
+
+# Gráfica de barras para Store
+p_bar_store <- ggplot(df_cat, aes(x = Store)) +
+  geom_bar(fill = "steelblue", color = "black", alpha = 0.7) +
+  theme_minimal() +
+  labs(title = "Ocurrencias por Tienda (Store)", x = "Número de Tienda", y = "Cantidad de Registros") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, size = 7)) # Rotamos etiquetas para que se lean bien
+
+# Mostrar las barras
+print(p_bar_holiday)
+print(p_bar_store)
+
+```
+## Boxplot vs Target (Weekky_sales)
+```{r}
+
+# Boxplot: Holiday_Flag vs Weekly_Sales
+p_box_holiday <- ggplot(df_cat, aes(x = Holiday_Flag, y = Weekly_Sales, fill = Holiday_Flag)) +
+  geom_boxplot(alpha = 0.7) +
+  theme_minimal() +
+  labs(title = "Ventas Semanales según Feriados", x = "", y = "Ventas Semanales ($)") +
+  theme(legend.position = "none")
+
+# Boxplot: Store vs Weekly_Sales
+p_box_store <- ggplot(df_cat, aes(x = Store, y = Weekly_Sales)) +
+  geom_boxplot(fill = "orange", alpha = 0.6, outlier.size = 1) +
+  theme_minimal() +
+  labs(title = "Distribución de Ventas Semanales por Tienda", x = "Número de Tienda", y = "Ventas Semanales ($)") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, size = 7))
+
+# Mostrar los boxplots
+print(p_box_holiday)
+print(p_box_store)
+```
+#### Comentario: 
+- **Ventas Semanales según Feriados (Holiday_Flag)**: Al observar el primer gráfico, la mediana de las ventas durante las semanas con Feriado es ligeramente superior a la de las semanas sin feriado. El bigote superior de días feriados se extiende más hacia arriba, alcanzando un valor máximo cercano a los $3 millones. Las semanas sin feriado muestran valores atípicos en la parte superior.
+
+- **Distribución de Ventas por Tienda (Store)**: Hay variación de ventas entre los distintos establecimientos. Existen tiendas con ventas altas, cuyas medianas rondan los $2 millones. Hay tiendas con ventas mucho menores, con medianas por debajo de los $500,000. Hay presencia de dispersión y outliers  en la mayoría de las tiendas.
+
+
+## Gráfica de serie temporal Weekly Sales - Date
+
+```{r}
+# 1. Convertir la columna Date a formato de fecha real (Date)
+# El formato del dataset viene como día-mes-año (dd-mm-yyyy)
+df_time <- df %>%
+  mutate(Date = as.Date(Date, format = "%d-%m-%Y"))
+
+# 2. Agrupar las ventas totales de todas las tiendas por fecha 
+
+df_timeline <- df_time %>%
+  group_by(Date) %>%
+  summarise(Total_Weekly_Sales = sum(Weekly_Sales))
+
+# 3. Crear la gráfica de serie temporal
+ggplot(df_timeline, aes(x = Date, y = Total_Weekly_Sales)) +
+  geom_line(color = "darkblue", size = 0.7) +
+  geom_point(color = "darkblue", alpha = 0.5, size = 1.2) +
+  scale_x_date(date_labels = "%b %Y", date_breaks = "3 months") +
+  theme_minimal() +
+  labs(
+    title = "Evolución de las Ventas Semanales Totales",
+    x = "Línea de Tiempo",
+    y = "Ventas Totales ($)"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+## Matriz de correlación para variables continuas
+
+```{r}
+# 1. Instalar y cargar ggcorrplot automáticamente si hace falta
+if(!require(ggcorrplot)) install.packages("ggcorrplot")
+library(ggcorrplot)
+
+# 2. Seleccionar únicamente las variables continuas del dataset
+df_continuas <- df %>% 
+  select(Weekly_Sales, Temperature, Fuel_Price, CPI, Unemployment)
+
+# 3. Calcular la matriz de correlación de Pearson
+matriz_corr <- cor(df_continuas, method = "pearson")
+
+# 4. Graficar el mapa de calor (Heatmap)
+ggcorrplot(
+  matriz_corr, 
+  type = "lower",        # Muestra solo la mitad inferior para evitar duplicados repetidos
+  lab = TRUE,            # Muestra los coeficientes numéricos dentro de los cuadros
+  lab_size = 4, 
+  colors = c("#6D9EC1", "white", "#E46726"), # Azul para negativo, blanco neutro, naranja/rojo para positivo
+  title = "Matriz de Correlación de Pearson - Variables Continuas",
+  ggtheme = theme_minimal()
+)
+```
+#### Comentario: 
+Débil Relación Lineal Individual: Al observar la matriz de correlación, se observa que ninguna variable continua tiene una relación lineal fuerte por sí sola con la variable target (Weekly_Sales). Las correlaciones con Temperature (-0.06), Fuel_Price (0.01), CPI (-0.07) y Unemployment (-0.11) están sumamente cercanas a cero. Esto sugiere que un modelo de regresión lineal simple o basado puramente en estas variables de forma aislada tendrá un poder predictivo muy bajo.
+
+Necesidad de Modelos Complejos y Regularización: serán indispensables técnicas que controlen la complejidad para evitar sobreajuste (como Ridge, LASSO y Elastic-Net).
+
+Variables Categóricas: Los boxplots revelaron que la tienda específica (Store) y las festividades (Holiday_Flag) marcan diferencias drásticas en los volúmenes de venta. Por lo tanto, el éxito de los modelos predictivos dependerá en gran medida de cómo procesemos estas variables.
+
+## Modelos de Regresión
+
+## Convertir Date en variables numéricas y categóricas
+```{r}
+# 1. Asegurar la instalación y carga de lubridate
+if(!require(lubridate)) install.packages("lubridate")
+library(lubridate)
+
+# 2. Ingeniería de características basadas en el tiempo (Corregido)
+df_preparado <- df_time %>%
+  mutate(
+    Anio          = year(Date),                         # Extrae el año (ej. 2010)
+    Mes           = month(Date),                        # Extrae el número de mes (1 al 12)
+    Dia           = day(Date),                          # Extrae el día del mes (1 al 31)
+    Dia_Semana    = wday(Date, week_start = 1),         # Día de la semana (5 = Viernes)
+    Es_Fin_Semana = ifelse(Dia_Semana >= 6, "Si", "No") # Guardado directo como texto plano
+  ) %>%
+  # Eliminamos la columna de Date original como pide la guía
+  select(-Date)
+
+# 3. Ver el resultado en pantalla
+df_preparado %>% 
+  select(Anio, Mes, Dia, Dia_Semana, Es_Fin_Semana) %>% 
+  head(5)
+```
+## Verificación de faltantes
+
+```{r}
+# Contar valores faltantes (NA) hay por cada columna
+valores_faltantes <- colSums(is.na(df_preparado))
+
+# Mostrar el conteo
+print("Cantidad de datos faltantes por columna:")
+print(valores_faltantes)
+```
+#### Comentario
+Se realizó la verificación de valores nulos y el conteo arrojó un total de cero datos nulos en todas las columnas, por lo que no fue necesario aplicar ninguna estrategia de imputación.
+
+
+## Partición de datos en Train y Test
+```{r}
+# Fijar una semilla para que la división sea reproducible
+set.seed(123)
+
+# Crear un índice aleatorio para seleccionar el 80% de las filas
+# Usamos las filas totales de df_preparado
+total_filas <- nrow(df_preparado)
+indices_entrenamiento <- sample(1:total_filas, size = 0.8 * total_filas)
+
+# Dividir el dataset utilizando el índice
+train_data <- df_preparado[indices_entrenamiento, ]
+test_data  <- df_preparado[-indices_entrenamiento, ]
+
+# Verificar el tamaño de cada conjunto en pantalla
+print(paste("Filas totales en Entrenamiento (Train):", nrow(train_data)))
+print(paste("Filas totales en Testeo (Testing):", nrow(test_data)))
+```
+## Repeated Cross-Validation)
+```{r}
+# Asegurar la instalación y carga de caret
+if(!require(caret)) install.packages("caret")
+library(caret)
+
+# Definir el control de entrenamiento con Validación Cruzada de 10 pliegues
+control_entrenamiento <- trainControl(
+  method = "cv",          # cv = Cross-Validation
+  number = 10,            # Número de pliegues (folds)
+  verboseIter = FALSE     # Oculta el texto largo de cada iteración en la consola
+)
+
+# Confirmación visual en el reporte
+print("Control de validación cruzada de 10 pliegues configurado exitosamente.")
+```
+## Implementación de modelos
+
+### Regresión Lineal Múltiple
+
+```{r}
+# Limpiar los conjuntos quitando variables constantes (como Es_Fin_Semana)
+# Mantenemos solo las variables que aportan variabilidad
+train_data_clean <- train_data %>% select(-Es_Fin_Semana)
+test_data_clean  <- test_data  %>% select(-Es_Fin_Semana)
+
+# Entrenar nuevamente el modelo de Regresión Lineal Múltiple (lm)
+modelo_lm <- train(
+  Weekly_Sales ~ .,                  # Usa todas las variables restantes
+  data = train_data_clean,           # Usamos el set limpio
+  method = "lm",                     # lm = Linear Model
+  trControl = control_entrenamiento  # Validación cruzada de 10 pliegues
+)
+
+# Mostrar el resumen de los resultados del entrenamiento
+print("--- Resultados del Entrenamiento del Modelo Lineal ---")
+print(modelo_lm)
+
+# Ver los coeficientes estadísticos
+print("--- Resumen de Coeficientes Estadísticos ---")
+summary(modelo_lm$finalModel)
+```
+### Ridge y LASSO
+
+```{r}
+# Asegurar que la librería de regularización esté lista
+if(!require(glmnet)) install.packages("glmnet")
+library(glmnet)
+
+# --- ENTRENAR RIDGE (alpha = 0) ---
+grid_ridge <- expand.grid(alpha = 0, lambda = seq(0.001, 100, length = 20))
+modelo_ridge <- train(
+  Weekly_Sales ~ ., data = train_data_clean, method = "glmnet",
+  trControl = control_entrenamiento, tuneGrid = grid_ridge
+)
+print("--- MEJOR MODELO RIDGE ---")
+print(modelo_ridge$results %>% filter(RMSE == min(RMSE)))
+
+# --- ENTRENAR LASSO (alpha = 1) ---
+grid_lasso <- expand.grid(alpha = 1, lambda = seq(0.001, 100, length = 20))
+modelo_lasso <- train(
+  Weekly_Sales ~ ., data = train_data_clean, method = "glmnet",
+  trControl = control_entrenamiento, tuneGrid = grid_lasso
+)
+print("--- MEJOR MODELO LASSO ---")
+print(modelo_lasso$results %>% filter(RMSE == min(RMSE)))
+```
+#### Comentario
+Al aplicar los modelos de penalización, observamos un comportamiento plano donde las métricas de rendimiento (RMSE y R-squared) permanecen invariables frente a los cambios en el hiperparámetro lambda.
+
+Las variables continuas actuales no tienen la estructura lineal necesaria para explicar el comportamiento de las ventas de forma aislada, replicando casi de manera idéntica los resultados del modelo lineal múltiple básico.
+
+
+### Regresión Elastic-Net
+
+```{r}
+# 1.Probando alphas intermedios
+grid_elastic <- expand.grid(
+  alpha = seq(0.1, 0.9, by = 0.2),
+  lambda = seq(0.001, 50, length = 10)
+)
+
+# Entrenar el modelo Elastic-Net
+modelo_elastic <- train(
+  Weekly_Sales ~ .,
+  data = train_data_clean,
+  method = "glmnet",
+  trControl = control_entrenamiento,
+  tuneGrid = grid_elastic
+)
+
+# Ver el resumen completo de las combinaciones
+print("--- Resultados de Regresión Elastic-Net ---")
+print(modelo_elastic$results)
+```
+
+### Modelo Stepwise (Forward Selection)
+
+```{r}
+# Asegurar la instalación de leaps
+if(!require(leaps)) install.packages("leaps")
+library(leaps)
+
+# Definir cuántas variables máximas tiene tu dataset para la grilla (menú de pruebas)
+max_predictores <- ncol(train_data_clean) - 1
+grid_forward <- expand.grid(nvmax = 1:max_predictores)
+
+# Entrenar el modelo usando Forward Selection (Método correcto: leapForward)
+modelo_forward <- train(
+  Weekly_Sales ~ .,
+  data = train_data_clean,
+  method = "leapForward",            # Nombre oficial en caret para selección hacia adelante
+  trControl = control_entrenamiento, # Misma validación cruzada de 10 pliegues
+  tuneGrid = grid_forward            # Evalúa el número óptimo de variables basadas en menor RMSE
+)
+
+#  Mostrar el rendimiento para cada número de variables
+print("--- Evolución del RMSE por cantidad de variables ---")
+print(modelo_forward$results)
+
+# Ver cuántas variables seleccionó como la combinación ideal
+print("--- Mejor Configuración Seleccionada ---")
+print(modelo_forward$bestTune)
+```
+
+## vi. Tabla comparativa 
+
+```{r}
+# Asegurar que las librerías necesarias estén activas
+library(dplyr)
+
+# Función de evaluación sobre el conjunto de prueba
+evaluar_modelo <- function(modelo, datos_test, nombre) {
+  predicciones <- predict(modelo, newdata = datos_test)
+  rmse_test <- RMSE(predicciones, datos_test$Weekly_Sales)
+  r2_test   <- R2(predicciones, datos_test$Weekly_Sales)
+  
+  data.frame(
+    Modelo = nombre,
+    RMSE_Test = round(rmse_test, 2),
+    Rsquared_Test = round(r2_test, 4)
+  )
+}
+
+# Consolidar los 5 modelos entrenados
+tabla_comparativa <- rbind(
+  evaluar_modelo(modelo_lm, test_data_clean, "Regresión Lineal Múltiple"),
+  evaluar_modelo(modelo_forward, test_data_clean, "Stepwise (Forward Selection)"),
+  evaluar_modelo(modelo_ridge, test_data_clean, "Regresión Ridge"),
+  evaluar_modelo(modelo_lasso, test_data_clean, "Regresión LASSO"),
+  evaluar_modelo(modelo_elastic, test_data_clean, "Elastic-Net")
+)
+
+# Ordenar automáticamente del mejor al peor (Menor RMSE a Mayor RMSE)
+tabla_ordenada <- tabla_comparativa %>% arrange(RMSE_Test)
+
+# Desplegar la tabla final ordenada
+print("--- TABLA COMPARATIVA ORDENADA (MEJOR A PEOR) ---")
+print(tabla_ordenada)
+```
+#### Comentario 
+
+Estos valores demuestra que los factores macroeconómicos y climáticos de la empresa (Temperature, Fuel_Price, CPI, Unemployment) no interactúan de forma lineal con las ventas semanales. Los consumidores no alteran sus patrones de compra en Walmart de manera proporcional ante un cambio de temperatura o inflación. Por lo tanto, para elevar la precisión predictiva, es necesario explorar algoritmos basados en estructuras no lineales. 
+
+
+## vii. Entrenamiento con modelos con la configuración de hyperparámetros ganadora
+
+```{r}
+# =========================================================
+#  EXTRACCIÓN DE MODELOS DEFINITIVOS GANADORES
+# =========================================================
+
+# Regresión Lineal Múltiple (Usa todas las variables)
+modelo_final_lm <- modelo_lm$finalModel
+
+# Stepwise Forward Selection (Fija la combinación ideal de 7 variables)
+modelo_final_forward <- modelo_forward$finalModel
+
+#  Regresión Ridge (Fija el mejor valor de lambda encontrado)
+modelo_final_ridge <- modelo_ridge$finalModel
+
+# Regresión LASSO (Fija el mejor valor de lambda encontrado)
+modelo_final_lasso <- modelo_lasso$finalModel
+
+# Elastic-Net (Fija la mejor combinación de alpha y lambda encontrada)
+modelo_final_elastic <- modelo_elastic$finalModel
+
+# Mensaje de confirmación
+print("Paso vii completado con éxito. Los 5 modelos finales han sido extraídos.")
+```
+## viii. Calcular el rmse final en el dataset de testing
+
+```{r}
+# =========================================================
+# PASO viii: CALCULAR EL RMSE FINAL EN EL DATASET DE TESTING
+# =========================================================
+
+# 1. Predicciones y RMSE para Regresión Lineal Múltiple
+pred_lm <- predict(modelo_final_lm, newdata = test_data_clean)
+rmse_final_lm <- RMSE(pred_lm, test_data_clean$Weekly_Sales)
+
+# 2. Predicciones y RMSE para Stepwise (Forward Selection)
+pred_forward <- predict(modelo_forward, newdata = test_data_clean)
+rmse_final_forward <- RMSE(pred_forward, test_data_clean$Weekly_Sales)
+
+# 3. Predicciones y RMSE para Regresión Ridge
+pred_ridge <- predict(modelo_ridge, newdata = test_data_clean)
+rmse_final_ridge <- RMSE(pred_ridge, test_data_clean$Weekly_Sales)
+
+# 4. Predicciones y RMSE para Regresión LASSO
+pred_lasso <- predict(modelo_lasso, newdata = test_data_clean)
+rmse_final_lasso <- RMSE(pred_lasso, test_data_clean$Weekly_Sales)
+
+# 5. Predicciones y RMSE para Elastic-Net
+pred_elastic <- predict(modelo_elastic, newdata = test_data_clean)
+rmse_final_elastic <- RMSE(pred_elastic, test_data_clean$Weekly_Sales)
+
+# --- IMPRIMIR VALORES EN CONSOLA PARA VERIFICACIÓN ---
+print("--- RMSE Finales (Conjunto de Testing) ---")
+print(paste("LM Múltiple:", round(rmse_final_lm, 2)))
+print(paste("Stepwise Forward:", round(rmse_final_forward, 2)))
+print(paste("Ridge:", round(rmse_final_ridge, 2)))
+print(paste("LASSO:", round(rmse_final_lasso, 2)))
+print(paste("Elastic-Net:", round(rmse_final_elastic, 2)))
+```
+## ix. Dataframe final
+
+```{r}
+# =========================================================
+#  CREACIÓN DEL DATAFRAME DE REGISTRO 
+# =========================================================
+
+# Definir los nombres y etiquetas cualitativas requeridas
+nombres_modelos <- c(
+  "Regresión Lineal Múltiple", 
+  "Stepwise (Forward Selection)", 
+  "Regresión Ridge", 
+  "Regresión LASSO", 
+  "Elastic-Net"
+)
+
+hyper_ganadores <- c(
+  "No aplica (Modelo completo)",
+  paste("nvmax =", modelo_forward$bestTune$nvmax),
+  paste("alpha = 0, lambda =", round(modelo_ridge$bestTune$lambda, 4)),
+  paste("alpha = 1, lambda =", round(modelo_lasso$bestTune$lambda, 4)),
+  paste("alpha =", modelo_elastic$bestTune$alpha, ", lambda =", round(modelo_elastic$bestTune$lambda, 4))
+)
+
+#  Extraer de manera automatizada las variables incluidas (CORRECCIÓN LEAPS)
+vars_lm      <- paste(names(coef(modelo_lm$finalModel))[-1], collapse = ", ")
+
+# Agregamos id = 7 que es el nvmax ganador
+vars_forward <- paste(names(coef(modelo_forward$finalModel, id = 7))[-1], collapse = ", ")
+
+vars_ridge   <- paste(rownames(coef(modelo_ridge$finalModel, s = modelo_ridge$bestTune$lambda))[-1], collapse = ", ")
+vars_lasso   <- paste(
+  rownames(coef(modelo_lasso$finalModel, s = modelo_lasso$bestTune$lambda))[
+    as.vector(coef(modelo_lasso$finalModel, s = modelo_lasso$bestTune$lambda)) != 0
+  ][-1], collapse = ", "
+)
+vars_elastic <- paste(
+  rownames(coef(modelo_elastic$finalModel, s = modelo_elastic$bestTune$lambda))[
+    as.vector(coef(modelo_elastic$finalModel, s = modelo_elastic$bestTune$lambda)) != 0
+  ][-1], collapse = ", "
+)
+
+# Consolidar el vector de RMSE finales calculados en el paso viii
+rmse_registro <- c(
+  rmse_final_lm,
+  rmse_final_forward,
+  rmse_final_ridge,
+  rmse_final_lasso,
+  rmse_final_elastic
+)
+
+#  Asignar los tags según rendimiento en Testing (image_0ee0ff)
+tags_modelos <- c("Champion", "Deprecated", "Deprecated", "Challenger", "Challenger")
+
+#  Armar el DataFrame Final 
+df_registro_modelos <- data.frame(
+  Id = 1:5,
+  Nombre_Modelo = nombres_modelos,
+  Hyper_Parametros_Ganadores = hyper_ganadores,
+  RMSE_Registro = round(rmse_registro, 2),
+  Listado_Variables = c(vars_lm, vars_forward, vars_ridge, vars_lasso, vars_elastic),
+  Tag_Modelo = tags_modelos,
+  stringsAsFactors = FALSE
+)
+
+#  Desplegar el DataFrame 
+print("--- DATAFRAME DE REGISTRO FINAL DE EXPERIMENTOS ---")
+print(df_registro_modelos)
+```
+#### Comentario 
+
+- **Modelo Campeón (Champion):** La **Regresión Lineal Múltiple**  menor error del experimento (**RMSE: 520,754.0**).
+- **Modelos Retadores (Challengers):** Tanto **Regresión LASSO** (RMSE: 520,772.8) como **Elastic-Net** (RMSE: 520,789.5) se consolidan como alternativas robustas. Su comportamiento casi idéntico al modelo lineal.
+- **Modelos Descartados (Deprecated):** 1. **Regresión Ridge** (RMSE: 521,069.2), debido a que retiene todas las variables aplicando una penalización cuadrática uniforme que infla sutilmente el error residual en testeo.
+  **Stepwise Forward Selection** (RMSE: 521,307.1),a pesar de aislar eficientemente 7 variables clave en el entrenamiento, pierde una ligera capacidad de generalización frente a datos completamente nuevos, quedando en la última posición.
+  
+**Conclusión Holística del Experimento Lineal:**
+La reducida dispersión entre los errores de los cinco modelos (una brecha máxima de apenas **$553.10 dólares** entre el peor y el mejor rendimiento sobre una escala de ventas millonaria) confirma un escenario generalizado de **sesgo alto (underfitting)**. 
+
+La demanda de los consumidores y las ventas semanales de las sucursales no interactúan de forma proporcional ni directa ante variaciones en el entorno Los patrones de consumo presentan curvaturas, estacionalidades complejas e interacciones cruzadas no lineales. 
+
+#### Generar archivo csv
+```{r}
+#  GENERAR ARCHIVO .CSV 
+write.csv(df_registro_modelos, file = "registro_resultados_modelos.csv", row.names = FALSE)
+print("Archivo 'registro_resultados_modelos.csv' exportado exitosamente.")
+```
+# Ejercicio #2: Investigación de Algoritmos No Lineales y Ensambles para Regresión
+
+### 1. Árboles de Decisión para Regresiones
+¿Cómo funciona el algoritmo?
+Divide datos recursivamente maximizando homogeneidad predictiva.
+
+¿Para qué casos es bueno este algoritmo?
+Relaciones no lineales y datos con valores atípicos. 
+
+¿Para qué casos no es bueno este algoritmo?
+Datasets pequeños propensos a sobreajuste drástico. 
+
+¿Cuál es la complejidad computacional de este algoritmo?
+Entrenamiento rápido: O(n_features * n_samples * log(n_samples)). 
+
+¿Qué ventajas tiene este algoritmo sobre los demás?
+Alta interpretabilidad visual y nula preparación previa. 
+
+¿Qué desventajas tiene este algoritmo sobre los demás?
+Inestabilidad matemática ante cambios mínimos de datos. 
+
+Hiperparámetros clave (Sci-Kit Learn):
+max_depth: profundidad máxima; min_samples_split: muestras mínimas para dividir. 
+
+### 2. K-Nearest Neighbors (KNN) para Regresiones
+¿Cómo funciona el algoritmo?
+Promedia los valores de los vecinos más cercanos. 
+
+¿Para qué casos es bueno este algoritmo?
+Estructuras de datos locales complejas y multimodales. 
+
+¿Para qué casos no es bueno este algoritmo?
+Grandes volúmenes de datos o dimensiones muy altas.
+
+¿Cuál es la complejidad computacional de este algoritmo?
+Predicción costosa y lenta: O(n_samples * n_features).
+
+¿Qué ventajas tiene este algoritmo sobre los demás?
+Algoritmo perezoso intuitivo sin suposiciones de distribución. 
+
+¿Qué desventajas tiene este algoritmo sobre los demás?
+Sensibilidad extrema a variables irrelevantes y escalas. 
+
+Hiperparámetros clave (Sci-Kit Learn):
+n_neighbors: número vecinos; weights: ponderación por distancia. 
+
+### 3. SVR – Support Vector Regression
+¿Cómo funciona el algoritmo?
+Encuentra hiperplano ajustado dentro de margen aceptable. 
+
+¿Para qué casos es bueno este algoritmo?
+Espacios multidimensionales con relaciones no lineales complejas. 
+
+¿Para qué casos no es bueno este algoritmo?
+Muestras gigantescas por alto requerimiento de memoria. 
+
+¿Cuál es la complejidad computacional de este algoritmo?
+Escalabilidad cuadrática compleja: O(n_samples^2 * n_features). 
+
+¿Qué ventajas tiene este algoritmo sobre los demás?
+Robusto ante ruido y evita óptimos locales. 
+
+¿Qué desventajas tiene este algoritmo sobre los demás?
+Ajuste de hiperparámetros difícil y nula interpretabilidad. 
+
+Hiperparámetros clave (Sci-Kit Learn):
+C: regularización; kernel: tipo transformación; epsilon: margen. 
+
+### Ensambles para Regresiones
+#### a. Random Forest
+¿Cómo funciona el algoritmo?
+Promedia predicciones de múltiples árboles independientes aleatorios. 
+
+¿Para qué casos es bueno este algoritmo?
+Modelar interacciones complejas evitando el sobreajuste general. 
+
+¿Para qué casos no es bueno este algoritmo?
+Predicciones en tiempo real con memoria limitada. 
+
+¿Cuál es la complejidad computacional de este algoritmo?
+Entrenamiento paralelo: O(n_estimators * n_features * n_samples * log(n_samples)). 
+
+¿Qué ventajas tiene este algoritmo sobre los demás?
+Excelente precisión general y reduce varianza eficientemente. 
+
+¿Qué desventajas tiene este algoritmo sobre los demás?
+Caja negra costosa y lenta de procesar. 
+
+Hiperparámetros clave (Sci-Kit Learn):
+n_estimators: cantidad árboles; max_features: variables por división. 
+
+#### b. Gradient Boosting
+¿Cómo funciona el algoritmo?
+Construye árboles secuenciales corrigiendo errores del anterior. 
+
+¿Para qué casos es bueno este algoritmo?
+Optimización precisa de métricas en datos estructurados. 
+
+¿Para qué casos no es bueno este algoritmo?
+Datos ruidosos propensos a sobreajuste muy rápido. 
+
+¿Cuál es la complejidad computacional de este algoritmo?
+Procesamiento puramente secuencial: O(n_estimators * n_samples * n_features). 
+
+¿Qué ventajas tiene este algoritmo sobre los demás?
+Poder predictivo sobresaliente minimizando sesgo del modelo. 
+
+¿Qué desventajas tiene este algoritmo sobre los demás?
+Entrenamiento lento debido a dependencia secuencial estricta. 
+
+Hiperparámetros clave (Sci-Kit Learn):
+learning_rate: escala aporte; n_estimators: iteraciones secuenciales. 
+
+#### c. XGBoost
+¿Cómo funciona el algoritmo?
+Optimiza Gradient Boosting mediante regularización y paralelización. 
+
+¿Para qué casos es bueno este algoritmo?
+Competencias de datos y despliegues de alto rendimiento. 
+
+¿Para qué casos no es bueno este algoritmo?
+Datasets pequeños donde algoritmos simples bastan fácilmente. 
+
+¿Cuál es la complejidad computacional de este algoritmo?
+Estructura optimizada: O(n_estimators * n_features_efectivas * n_samples). 
+
+¿Qué ventajas tiene este algoritmo sobre los demás?
+Velocidad extrema, manejo de nulos y regularización. 
+
+¿Qué desventajas tiene este algoritmo sobre los demás?
+Arquitectura compleja con demasiados parámetros para ajustar. 
+
+Hiperparámetros clave (Sci-Kit Learn / API):
+max_depth: profundidad; subsample: porcentaje filas entrenamiento. 
+
+#### d. AdaBoost
+¿Cómo funciona el algoritmo?
+Ajusta pesos dando prioridad a errores previos. 
+
+¿Para qué casos es bueno este algoritmo?
+Mejorar modelos débiles lineales o árboles pequeños. 
+
+¿Para qué casos no es bueno este algoritmo?
+Datos con alta presencia de ruido extremo. 
+
+¿Cuál es la complejidad computacional de este algoritmo?
+Dependencia lineal iterativa: O(n_estimators * n_samples * n_features). 
+
+¿Qué ventajas tiene este algoritmo sobre los demás?
+Fácil implementación sin requerir configuraciones complejas iniciales. 
+
+¿Qué desventajas tiene este algoritmo sobre los demás?
+Vulnerable a valores atípicos que desvían pesos. 
+
+### Hiperparámetros clave (Sci-Kit Learn):
+estimator: modelo base; learning_rate: tasa de aprendizaje. 
+
+### Referencias: 
+James, G., Witten, D., Hastie, T., & Tibshirani, R. (2013). An Introduction to Statistical Learning. Springer.
+
+Pedregosa, F. et al. (2011). Scikit-learn: Machine Learning in Python. Journal of Machine Learning Research, 12, 2825-2830.
+
+Chen, T., & Guestrin, C. (2016). XGBoost: A Scalable Tree Boosting System. ACM SIGKDD.

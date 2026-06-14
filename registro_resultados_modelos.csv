@@ -1,0 +1,6 @@
+"Id","Nombre_Modelo","Hyper_Parametros_Ganadores","RMSE_Registro","Listado_Variables","Tag_Modelo"
+1,"Regresión Lineal Múltiple","No aplica (Modelo completo)",520753.99,"Store, Holiday_Flag, Temperature, Fuel_Price, CPI, Unemployment, Anio, Mes, Dia, Dia_Semana","Champion"
+2,"Stepwise (Forward Selection)","nvmax = 7",521307.07,"Store, Temperature, Fuel_Price, CPI, Unemployment, Anio, Mes","Deprecated"
+3,"Regresión Ridge","alpha = 0, lambda = 100",521069.22,"Store, Holiday_Flag, Temperature, Fuel_Price, CPI, Unemployment, Anio, Mes, Dia, Dia_Semana","Deprecated"
+4,"Regresión LASSO","alpha = 1, lambda = 100",520772.81,"Store, Holiday_Flag, Temperature, Fuel_Price, CPI, Unemployment, Anio, Mes, Dia","Challenger"
+5,"Elastic-Net","alpha = 0.1 , lambda = 50",520789.55,"Store, Holiday_Flag, Temperature, Fuel_Price, CPI, Unemployment, Anio, Mes, Dia","Challenger"
